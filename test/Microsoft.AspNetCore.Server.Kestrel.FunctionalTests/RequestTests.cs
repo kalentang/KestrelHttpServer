@@ -2,15 +2,18 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Testing.xunit;
+using Microsoft.Extensions.Logging.Testing;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
@@ -134,6 +137,51 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
 
                 var response = await client.GetAsync($"http://localhost:{host.GetPort()}/");
                 response.EnsureSuccessStatusCode();
+            }
+        }
+
+        [Fact]
+        public async Task ConnectionResetAbortsRequest()
+        {
+            const int connectionErrorEventId = 14; // from KestrelTrace.cs
+
+            var testSink = new TestSink(write => write.EventId.Id == connectionErrorEventId);
+            var requestAbortedAcquired = new CancellationTokenSource();
+            var builder = new WebHostBuilder()
+                .UseLoggerFactory(new TestLoggerFactory(testSink, true))
+                .UseKestrel()
+                .UseUrls($"http://127.0.0.1:0")
+                .Configure(app => app.Run(context =>
+                {
+                    return Task.FromResult(0);
+                }));
+
+            using (var host = builder.Build())
+            {
+                host.Start();
+
+                using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                {
+                    socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
+                    socket.LingerState = new LingerOption(true, 0);
+                }
+
+                // Give it some time for the connection error log message to be logged
+                var filteredWrites = testSink.Writes.Where(write => write.EventId.Id == connectionErrorEventId);
+                for (var i = 0; i < 10; i++)
+                {
+                    System.Console.WriteLine(i);
+                    if (filteredWrites.Any())
+                    {
+                        break;
+                    }
+
+                    await Task.Delay(50);
+                }
+
+                var connectionErrorMessage = filteredWrites.FirstOrDefault();
+                Assert.NotNull(connectionErrorMessage);
+                Assert.Contains("ECONNRESET", connectionErrorMessage.Exception.Message);
             }
         }
 
