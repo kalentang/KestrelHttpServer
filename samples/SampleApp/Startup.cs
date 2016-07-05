@@ -18,23 +18,10 @@ namespace SampleApp
 
             app.Run(async context =>
             {
-                Console.WriteLine("{0} {1}{2}{3}",
-                    context.Request.Method,
-                    context.Request.PathBase,
-                    context.Request.Path,
-                    context.Request.QueryString);
-                Console.WriteLine($"Method: {context.Request.Method}");
-                Console.WriteLine($"PathBase: {context.Request.PathBase}");
-                Console.WriteLine($"Path: {context.Request.Path}");
-                Console.WriteLine($"QueryString: {context.Request.QueryString}");
-
-                var connectionFeature = context.Connection;
-                Console.WriteLine($"Peer: {connectionFeature.RemoteIpAddress?.ToString()} {connectionFeature.RemotePort}");
-                Console.WriteLine($"Sock: {connectionFeature.LocalIpAddress?.ToString()} {connectionFeature.LocalPort}");
-
-                context.Response.ContentLength = 11;
+                const string response = "hello, world\r\n";
+                context.Response.ContentLength = response.Length;
                 context.Response.ContentType = "text/plain";
-                await context.Response.WriteAsync("Hello world");
+                await context.Response.WriteAsync(response);
             });
         }
 
