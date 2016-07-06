@@ -1,7 +1,9 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -98,19 +100,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
         }
 
         [Fact]
-        public Task RemoteIPv4Address()
-        {
-            return TestRemoteIPAddress("127.0.0.1", "127.0.0.1", "127.0.0.1");
-        }
-
-        [ConditionalFact]
-        [IPv6SupportedCondition]
-        public Task RemoteIPv6Address()
-        {
-            return TestRemoteIPAddress("[::1]", "[::1]", "::1");
-        }
-
-        [Fact]
         public async Task DoesNotHangOnConnectionCloseRequest()
         {
             var builder = new WebHostBuilder()
@@ -135,6 +124,64 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                 var response = await client.GetAsync($"http://localhost:{host.GetPort()}/");
                 response.EnsureSuccessStatusCode();
             }
+        }
+
+        [Fact]
+        public async Task StreamsAreNotPersistedAcrossRequests()
+        {
+            var requestBodyPersisted = false;
+            var responseBodyPersisted = false;
+
+            var builder = new WebHostBuilder()
+               .UseKestrel()
+               .UseUrls($"http://127.0.0.1:0")
+               .Configure(app =>
+               {
+                   app.Run(async context =>
+                   {
+                       if (context.Request.Body is MemoryStream)
+                       {
+                           requestBodyPersisted = true;
+                       }
+
+                       if (context.Response.Body is MemoryStream)
+                       {
+                           responseBodyPersisted = true;
+                       }
+
+                       context.Request.Body = new MemoryStream();
+                       context.Response.Body = new MemoryStream();
+
+                       await context.Response.WriteAsync("hello, world");
+                   });
+               });
+
+            using (var host = builder.Build())
+            {
+                host.Start();
+
+                using (var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.GetPort()}") })
+                {
+                    await client.GetAsync("/");
+                    await client.GetAsync("/");
+
+                    Assert.False(requestBodyPersisted);
+                    Assert.False(responseBodyPersisted);
+                }
+            }
+        }
+
+        [Fact]
+        public Task RemoteIPv4Address()
+        {
+            return TestRemoteIPAddress("127.0.0.1", "127.0.0.1", "127.0.0.1");
+        }
+
+        [ConditionalFact]
+        [IPv6SupportedCondition]
+        public Task RemoteIPv6Address()
+        {
+            return TestRemoteIPAddress("[::1]", "[::1]", "::1");
         }
 
         private async Task TestRemoteIPAddress(string registerAddress, string requestAddress, string expectAddress)
