@@ -18,7 +18,7 @@ namespace SampleApp
 
             app.Run(async context =>
             {
-                const string response = "hello, world\r\n";
+                var response = $"hello, world{Environment.NewLine}";
                 context.Response.ContentLength = response.Length;
                 context.Response.ContentType = "text/plain";
                 await context.Response.WriteAsync(response);
